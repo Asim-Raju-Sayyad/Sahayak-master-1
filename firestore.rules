@@ -1,0 +1,99 @@
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+  
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isRole(role) {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+
+    // users/{userId}
+    // Contains user profile information for both teachers and students.
+    match /users/{userId} {
+    
+      function isValidNewUser() {
+        let isTeacher = request.resource.data.role == 'teacher'
+            && request.resource.data.teacherCode is string
+            && request.resource.data.teacherCode.size() == 6;
+        
+        let isStudent = request.resource.data.role == 'student'
+            && request.resource.data.teacherId is string;
+
+        return request.resource.data.name is string
+            && request.resource.data.email == request.auth.token.email
+            && (isTeacher || isStudent);
+      }
+      
+      allow create: if isSignedIn() && isOwner(userId) && isValidNewUser();
+      
+      allow read: if isSignedIn() && 
+                    (isOwner(userId) || 
+                     (isRole('teacher') && get(/databases/$(database)/documents/users/$(userId)).data.teacherId == request.auth.uid) ||
+                     (isRole('student') && resource.data.teacherId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.teacherId));
+
+      allow update: if isSignedIn() && isOwner(userId);
+      allow delete: if isSignedIn() && isOwner(userId);
+    }
+    
+    // teacherCodes/{code}
+    // A collection to ensure teacher codes are unique.
+    match /teacherCodes/{code} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.teacherId == request.auth.uid;
+      // No updates or deletes to prevent code hijacking.
+      allow update, delete: if false;
+    }
+
+    // content/{contentId}
+    // Generic content created by teachers (stories, worksheets, etc).
+    match /content/{contentId} {
+      allow read: if isSignedIn() && (
+                    resource.data.teacherId == request.auth.uid ||
+                    (resource.data.assignedStudentIds != null && request.auth.uid in resource.data.assignedStudentIds)
+                  );
+      allow create: if isSignedIn() && isRole('teacher') && request.resource.data.teacherId == request.auth.uid;
+      allow update, delete: if isSignedIn() && isRole('teacher') && resource.data.teacherId == request.auth.uid;
+    }
+    
+    // assignments/{assignmentId}
+    // Links content to a specific student.
+    match /assignments/{assignmentId} {
+        allow read: if isSignedIn() && (resource.data.teacherId == request.auth.uid || resource.data.studentId == request.auth.uid);
+        allow create: if isSignedIn() && isRole('teacher') && request.resource.data.teacherId == request.auth.uid;
+        allow delete: if isSignedIn() && isRole('teacher') && resource.data.teacherId == request.auth.uid;
+    }
+    
+    // assessments/{assessmentId}
+    // Reading passages assigned by teachers.
+    match /assessments/{assessmentId} {
+        allow read: if isSignedIn() && (
+                      resource.data.teacherId == request.auth.uid || 
+                      request.auth.uid in resource.data.assignedStudentIds
+                    );
+        allow create: if isSignedIn() && isRole('teacher') && request.resource.data.teacherId == request.auth.uid;
+        allow update, delete: if isSignedIn() && isRole('teacher') && resource.data.teacherId == request.auth.uid;
+    }
+
+    // submissions/{submissionId}
+    // Student work submitted for review.
+    match /submissions/{submissionId} {
+        allow read, update: if isSignedIn() && resource.data.teacherId == request.auth.uid;
+        allow read, create: if isSignedIn() && isRole('student') && request.resource.data.studentId == request.auth.uid;
+    }
+
+    // Catch-all to deny any other access.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
