@@ -13,6 +13,9 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
+console.log("Firebase Project ID in browser:", firebaseConfig.projectId);
+
+
 // A comprehensive check to see if Firebase has been configured.
 export const firebaseInitialized = !!(
     firebaseConfig.apiKey &&

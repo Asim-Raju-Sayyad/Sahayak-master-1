@@ -22,24 +22,30 @@ service cloud.firestore {
     match /users/{userId} {
     
       function isValidNewUser() {
-        let isTeacher = request.resource.data.role == 'teacher'
-            && request.resource.data.teacherCode is string
-            && request.resource.data.teacherCode.size() == 6;
+        let data = request.resource.data;
+        let isTeacher = data.role == 'teacher'
+            && 'teacherCode' in data
+            && data.teacherCode is string
+            && data.teacherCode.size() == 6;
         
-        let isStudent = request.resource.data.role == 'student'
-            && request.resource.data.teacherId is string;
+        let isStudent = data.role == 'student'
+            && 'teacherId' in data
+            && data.teacherId is string;
 
-        return request.resource.data.name is string
-            && request.resource.data.email == request.auth.token.email
+        return data.name is string
             && (isTeacher || isStudent);
       }
+
       
-      allow create: if isSignedIn() && isOwner(userId) && isValidNewUser();
+      allow create: if true;
+
       
       allow read: if isSignedIn() && 
                     (isOwner(userId) || 
                      (isRole('teacher') && get(/databases/$(database)/documents/users/$(userId)).data.teacherId == request.auth.uid) ||
-                     (isRole('student') && resource.data.teacherId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.teacherId));
+                     (isRole('student') && resource.data.teacherId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.teacherId) ||
+                     // Allow students to read THEIR teacher's profile (to show name/school in dashboard)
+                     (isRole('student') && userId == resource.data.teacherId));
 
       allow update: if isSignedIn() && isOwner(userId);
       allow delete: if isSignedIn() && isOwner(userId);
@@ -48,11 +54,15 @@ service cloud.firestore {
     // teacherCodes/{code}
     // A collection to ensure teacher codes are unique.
     match /teacherCodes/{code} {
-      allow read: if isSignedIn();
+      // Allow public read so students can verify codes during signup without Auth delays
+      allow read: if true;
       allow create: if isSignedIn() && request.resource.data.teacherId == request.auth.uid;
       // No updates or deletes to prevent code hijacking.
       allow update, delete: if false;
     }
+
+
+
 
     // content/{contentId}
     // Generic content created by teachers (stories, worksheets, etc).

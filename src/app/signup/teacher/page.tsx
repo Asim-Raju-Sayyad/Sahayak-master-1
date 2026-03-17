@@ -22,7 +22,7 @@ export default function TeacherSignupPage() {
   const [isCheckingRole, setIsCheckingRole] = useState(true)
 
   useEffect(() => {
-    // Don't do anything until Firebase auth state is resolved
+    // Only run this check ONCE on initial mount when auth is resolved
     if (authLoading) {
       return
     }
@@ -42,25 +42,18 @@ export default function TeacherSignupPage() {
           const userRole = userDocSnap.data()?.role;
           if (userRole === 'teacher' || userRole === 'student') {
             router.push(`/dashboard/${userRole}`);
-          } else {
-            // Role is missing or invalid, sign out and let them sign up.
-            await signOut(auth);
-            setIsCheckingRole(false);
+            return; // Exit after redirect
           }
-        } else {
-          // Incomplete signup, sign them out so they can sign up properly
-          await signOut(auth);
-          setIsCheckingRole(false);
         }
-      } else {
-        // No user is logged in, so stop checking and show the form.
-        setIsCheckingRole(false);
       }
+      
+      // If we get here, either no user or user needs to complete signup
+      setIsCheckingRole(false);
     };
     
     checkUserAndRedirect();
 
-  }, [user, authLoading, router]);
+  }, [authLoading]); // Remove 'user' and 'router' from dependencies to only run on mount after auth is ready
 
 
   if (authLoading || isCheckingRole) {

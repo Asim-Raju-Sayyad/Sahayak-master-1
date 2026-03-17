@@ -78,16 +78,10 @@ export function SignUpForm({ role }: SignUpFormProps) {
     },
   })
 
-  // This handles the case where a user is authenticated but doesn't have a DB record.
-  // We sign them out so they can reuse their email to sign up properly.
+  // No longer signing out here to avoid race conditions with signup pages
+  // The pages themselves check on mount and handle already-logged-in users.
   React.useEffect(() => {
-    if (auth?.currentUser && db) {
-        getDoc(doc(db, "users", auth.currentUser.uid)).then(docSnap => {
-            if (!docSnap.exists()) {
-                signOut(auth);
-            }
-        });
-    }
+    // This can be used for any other form-level initialization if needed
   }, []);
 
   const onFormSubmit = async (values: z.infer<typeof signupSchema>) => {
@@ -100,11 +94,14 @@ export function SignUpForm({ role }: SignUpFormProps) {
       return;
     }
 
+    const firebaseAuth = auth;
+    const firestoreDb = db;
+
     setIsLoading(true);
 
     try {
         // Step 1: Create the user in Firebase Auth
-        const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
+        const userCredential = await createUserWithEmailAndPassword(firebaseAuth, values.email, values.password);
         const user = userCredential.user;
         await updateProfile(user, { displayName: values.name });
 
@@ -112,7 +109,7 @@ export function SignUpForm({ role }: SignUpFormProps) {
         if (role === 'teacher') {
             const teacherValues = values as z.infer<typeof teacherSignUpSchema>;
             
-            await runTransaction(db, async (transaction) => {
+            await runTransaction(firestoreDb, async (transaction) => {
                 let newTeacherCode = '';
                 let codeExists = true;
                 let retries = 0;
@@ -121,7 +118,7 @@ export function SignUpForm({ role }: SignUpFormProps) {
                 // Attempt to generate a unique teacher code
                 while(codeExists && retries < maxRetries) {
                     newTeacherCode = generateTeacherCode();
-                    const codeDocRef = doc(db, "teacherCodes", newTeacherCode);
+                    const codeDocRef = doc(firestoreDb, "teacherCodes", newTeacherCode);
                     const codeDoc = await transaction.get(codeDocRef);
                     if (!codeDoc.exists()) {
                         codeExists = false;
@@ -144,8 +141,8 @@ export function SignUpForm({ role }: SignUpFormProps) {
                     teacherCode: newTeacherCode,
                 };
                 
-                const userDocRef = doc(db, "users", user.uid);
-                const codeDocRef = doc(db, "teacherCodes", newTeacherCode);
+                const userDocRef = doc(firestoreDb, "users", user.uid);
+                const codeDocRef = doc(firestoreDb, "teacherCodes", newTeacherCode);
 
                 transaction.set(userDocRef, teacherData);
                 transaction.set(codeDocRef, { teacherId: user.uid });
@@ -155,11 +152,20 @@ export function SignUpForm({ role }: SignUpFormProps) {
             const studentValues = values as z.infer<typeof studentSignUpSchema>;
             const teacherCode = studentValues.teacherCode.toUpperCase();
             
-            // First, validate the teacher code exists
-            const q = query(collection(db, "users"), where("teacherCode", "==", teacherCode), where("role", "==", "teacher"));
-            const querySnapshot = await getDocs(q);
+            // Optimization: Look up the code directly in teacherCodes collection
+            console.log("Looking up teacher code:", teacherCode);
+            let codeDocSnap;
+            try {
+                const codeDocRef = doc(firestoreDb, "teacherCodes", teacherCode);
+                codeDocSnap = await getDoc(codeDocRef);
+            } catch (e: any) {
+                console.error("Error during teacher code lookup:", e);
+                throw new Error("Could not verify teacher code: " + e.message);
+            }
 
-            if (querySnapshot.empty) {
+
+            if (!codeDocSnap.exists()) {
+              console.log("Teacher code not found");
               toast({
                 title: t("Invalid Teacher Code"),
                 description: t("No teacher found with that code. Please check and try again."),
@@ -170,7 +176,8 @@ export function SignUpForm({ role }: SignUpFormProps) {
               setIsLoading(false);
               return;
             }
-            const teacherId = querySnapshot.docs[0].id;
+            const teacherId = codeDocSnap.data().teacherId;
+            console.log("Teacher ID found:", teacherId);
 
             // Now, create the student document
             const studentData = {
@@ -183,7 +190,10 @@ export function SignUpForm({ role }: SignUpFormProps) {
                 grade: studentValues.grade,
                 teacherId: teacherId, 
             };
-            await setDoc(doc(db, "users", user.uid), studentData);
+            console.log("Creating student document with data:", studentData);
+            await setDoc(doc(firestoreDb, "users", user.uid), studentData);
+            console.log("Student document created successfully");
+
         }
 
         toast({
@@ -196,8 +206,8 @@ export function SignUpForm({ role }: SignUpFormProps) {
       } catch (error: any) {
         // If there's an error during the process, especially after auth user creation,
         // it's crucial to delete the auth user to allow them to try again.
-        if (auth.currentUser) {
-            await auth.currentUser.delete().catch(e => console.error("Failed to delete auth user on signup error:", e));
+        if (firebaseAuth.currentUser) {
+            await firebaseAuth.currentUser.delete().catch(e => console.error("Failed to delete auth user on signup error:", e));
         }
 
         if (error.code === 'auth/email-already-in-use') {
@@ -281,7 +291,7 @@ export function SignUpForm({ role }: SignUpFormProps) {
                   <>
                     <FormField
                       control={form.control}
-                      name="grade"
+                      name={"grade" as any}
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>{t("Grade")}</FormLabel>
@@ -303,7 +313,7 @@ export function SignUpForm({ role }: SignUpFormProps) {
                     />
                     <FormField
                       control={form.control}
-                      name="teacherCode"
+                      name={"teacherCode" as any}
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>{t("Teacher Code")}</FormLabel>
