@@ -51,7 +51,7 @@ const teacherSignUpSchema = baseSchema;
 
 const studentSignUpSchema = baseSchema.extend({
   grade: z.string({ required_error: "Please select your grade." }),
-  teacherCode: z.string().length(6, { message: "Teacher code must be 6 characters." }),
+  teacherCode: z.string().length(6, { message: "Teacher code must be 6 characters." }).optional().or(z.literal("")),
 })
 
 interface SignUpFormProps {
@@ -150,34 +150,37 @@ export function SignUpForm({ role }: SignUpFormProps) {
 
         } else { // Student Signup
             const studentValues = values as z.infer<typeof studentSignUpSchema>;
-            const teacherCode = studentValues.teacherCode.toUpperCase();
+            const teacherCode = studentValues.teacherCode?.toUpperCase();
+            let teacherId: string | null = null;
             
-            // Optimization: Look up the code directly in teacherCodes collection
-            console.log("Looking up teacher code:", teacherCode);
-            let codeDocSnap;
-            try {
-                const codeDocRef = doc(firestoreDb, "teacherCodes", teacherCode);
-                codeDocSnap = await getDoc(codeDocRef);
-            } catch (e: any) {
-                console.error("Error during teacher code lookup:", e);
-                throw new Error("Could not verify teacher code: " + e.message);
-            }
+            if (teacherCode) {
+                // Optimization: Look up the code directly in teacherCodes collection
+                console.log("Looking up teacher code:", teacherCode);
+                let codeDocSnap;
+                try {
+                    const codeDocRef = doc(firestoreDb, "teacherCodes", teacherCode);
+                    codeDocSnap = await getDoc(codeDocRef);
+                } catch (e: any) {
+                    console.error("Error during teacher code lookup:", e);
+                    throw new Error("Could not verify teacher code: " + e.message);
+                }
 
 
-            if (!codeDocSnap.exists()) {
-              console.log("Teacher code not found");
-              toast({
-                title: t("Invalid Teacher Code"),
-                description: t("No teacher found with that code. Please check and try again."),
-                variant: "destructive",
-              });
-              // IMPORTANT: Delete the created auth user if the teacher code is invalid
-              await user.delete();
-              setIsLoading(false);
-              return;
+                if (!codeDocSnap.exists()) {
+                  console.log("Teacher code not found");
+                  toast({
+                    title: t("Invalid Teacher Code"),
+                    description: t("No teacher found with that code. Please check and try again."),
+                    variant: "destructive",
+                  });
+                  // IMPORTANT: Delete the created auth user if the teacher code is invalid
+                  await user.delete();
+                  setIsLoading(false);
+                  return;
+                }
+                teacherId = codeDocSnap.data().teacherId;
+                console.log("Teacher ID found:", teacherId);
             }
-            const teacherId = codeDocSnap.data().teacherId;
-            console.log("Teacher ID found:", teacherId);
 
             // Now, create the student document
             const studentData = {

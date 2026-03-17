@@ -8,8 +8,8 @@ import { ArrowRight, BookText, FileText, HelpCircle, PencilRuler } from "lucide-
 import Link from "next/link"
 import { useAuth } from "@/hooks/use-auth"
 import { useTranslation } from "@/hooks/use-translation"
-import { collection, query, where, onSnapshot } from "firebase/firestore"
-import { db } from "@/lib/firebase"
+import { collection, query, where, onSnapshot, or } from "firebase/firestore"
+  import { db } from "@/lib/firebase"
 import { useEffect, useState } from "react"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -38,9 +38,13 @@ export default function StudentDashboardPage() {
     if (!db || !user) return
 
     setIsLoadingAssignments(true);
+    const assessmentsRef = collection(db, "assessments");
     const assignmentsQuery = query(
-        collection(db, "assessments"),
-        where("assignedStudentIds", "array-contains", user.uid)
+        assessmentsRef,
+        or(
+            where("assignedStudentIds", "array-contains", user.uid),
+            where("isGlobal", "==", true)
+        )
     );
 
     const unsubscribe = onSnapshot(assignmentsQuery, (snapshot) => {

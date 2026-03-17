@@ -43,6 +43,7 @@ export default function AssignAssessmentPage() {
   const [assessmentTitle, setAssessmentTitle] = useState("")
   const [isGenerating, setIsGenerating] = useState(false)
   const [isAssigning, setIsAssigning] = useState(false)
+  const [isGlobal, setIsGlobal] = useState(false)
   
   const [selectedStudents, setSelectedStudents] = useState<string[]>([])
   const [students, setStudents] = useState<Student[]>([])
@@ -119,10 +120,10 @@ export default function AssignAssessmentPage() {
   }
 
   const handleAssignAssessment = async () => {
-    if (!passage || selectedStudents.length === 0 || !assessmentTitle) {
+    if (!passage || (!isGlobal && selectedStudents.length === 0) || !assessmentTitle) {
       toast({
         title: t("Missing Information"),
-        description: t("Please provide a title, a passage, and select at least one student."),
+        description: t("Please provide a title, a passage, and select at least one student (or assign to everyone)."),
         variant: "destructive",
       })
       return
@@ -135,12 +136,15 @@ export default function AssignAssessmentPage() {
         title: assessmentTitle,
         passage: passage,
         teacherId: user.uid,
-        assignedStudentIds: selectedStudents,
+        assignedStudentIds: isGlobal ? [] : selectedStudents,
+        isGlobal: isGlobal,
         createdAt: serverTimestamp(),
       })
       toast({
         title: t("Assessment Assigned!"),
-        description: t("Your students can now see the new assignment."),
+        description: isGlobal 
+            ? t("Your assessment has been assigned to all students.") 
+            : t("Your students can now see the new assignment."),
       })
       router.push("/dashboard/teacher/assessments")
     } catch (error) {
@@ -243,67 +247,78 @@ export default function AssignAssessmentPage() {
               <CardDescription>{t("Select the students who should receive this assessment.")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center space-x-2">
-                <Checkbox id="select-all" onCheckedChange={handleSelectAll} checked={students.length > 0 && selectedStudents.length === students.length} />
-                <Label htmlFor="select-all" className="font-medium">{t("Select All Students")}</Label>
+              <div className="flex items-center space-x-2 py-2 border-b">
+                <Checkbox id="assign-everyone" checked={isGlobal} onCheckedChange={(checked) => setIsGlobal(!!checked)} />
+                <Label htmlFor="assign-everyone" className="font-bold text-primary">{t("Assign to Everyone (Public)")}</Label>
               </div>
-              <Accordion type="multiple" className="w-full border-t">
-                {isLoadingStudents ? (
-                  <div className="space-y-2 p-2">
-                    <Skeleton className="h-10 w-full" />
-                    <Skeleton className="h-10 w-full" />
-                    <Skeleton className="h-10 w-full" />
-                  </div>
-                ) : Object.keys(groupedStudents).length > 0 ? (
-                  Object.entries(groupedStudents).map(([grade, studentsInGrade]) => {
-                    const allInGradeSelected = studentsInGrade.every(s => selectedStudents.includes(s.id));
 
-                    return (
-                      <AccordionItem value={grade} key={grade}>
-                        <AccordionPrimitive.Header className="flex items-center px-2 py-1">
-                            <div className="flex items-center space-x-3 flex-1 p-2">
-                                <Checkbox
-                                    id={`select-grade-${grade}`}
-                                    checked={allInGradeSelected}
-                                    onCheckedChange={(checked) => handleSelectGrade(grade, checked)}
-                                    aria-label={`Select all students in grade ${grade}`}
-                                />
-                                <Label htmlFor={`select-grade-${grade}`} className="font-semibold text-base flex-1 cursor-pointer">
-                                    {t("Grade")} {grade}
-                                </Label>
-                            </div>
-                            <AccordionPrimitive.Trigger className="p-2 rounded-sm hover:bg-accent">
-                                <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200 data-[state=open]:rotate-180" />
-                            </AccordionPrimitive.Trigger>
-                        </AccordionPrimitive.Header>
-                        <AccordionContent>
-                          <div className="space-y-2 pt-2 pl-10">
-                            {studentsInGrade.map(student => (
-                              <div key={student.id} className="flex items-center space-x-2 p-1 rounded-md">
-                                <Checkbox
-                                  id={student.id}
-                                  checked={selectedStudents.includes(student.id)}
-                                  onCheckedChange={(checked) => {
-                                    setSelectedStudents(prev => checked ? [...prev, student.id] : prev.filter(id => id !== student.id))
-                                  }}
-                                />
-                                <Label htmlFor={student.id} className="w-full cursor-pointer">{student.name}</Label>
+              {!isGlobal && (
+                <>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox id="select-all" onCheckedChange={handleSelectAll} checked={students.length > 0 && selectedStudents.length === students.length} />
+                    <Label htmlFor="select-all" className="font-medium">{t("Select All My Students")}</Label>
+                  </div>
+                  <Accordion type="multiple" className="w-full border-t">
+                    {isLoadingStudents ? (
+                      <div className="space-y-2 p-2">
+                        <Skeleton className="h-10 w-full" />
+                        <Skeleton className="h-10 w-full" />
+                        <Skeleton className="h-10 w-full" />
+                      </div>
+                    ) : Object.keys(groupedStudents).length > 0 ? (
+                      Object.entries(groupedStudents).map(([grade, studentsInGrade]) => {
+                        const allInGradeSelected = studentsInGrade.every(s => selectedStudents.includes(s.id));
+
+                        return (
+                          <AccordionItem value={grade} key={grade}>
+                            <AccordionPrimitive.Header className="flex items-center px-2 py-1">
+                                <div className="flex items-center space-x-3 flex-1 p-2">
+                                    <Checkbox
+                                        id={`select-grade-${grade}`}
+                                        checked={allInGradeSelected}
+                                        onCheckedChange={(checked) => handleSelectGrade(grade, checked)}
+                                        aria-label={`Select all students in grade ${grade}`}
+                                    />
+                                    <Label htmlFor={`select-grade-${grade}`} className="font-semibold text-base flex-1 cursor-pointer">
+                                        {t("Grade")} {grade}
+                                    </Label>
+                                </div>
+                                <AccordionPrimitive.Trigger className="p-2 rounded-sm hover:bg-accent">
+                                    <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200 data-[state=open]:rotate-180" />
+                                </AccordionPrimitive.Trigger>
+                            </AccordionPrimitive.Header>
+                            <AccordionContent>
+                              <div className="space-y-2 pt-2 pl-10">
+                                {studentsInGrade.map(student => (
+                                  <div key={student.id} className="flex items-center space-x-2 p-1 rounded-md">
+                                    <Checkbox
+                                      id={student.id}
+                                      checked={selectedStudents.includes(student.id)}
+                                      onCheckedChange={(checked) => {
+                                        setSelectedStudents(prev => checked ? [...prev, student.id] : prev.filter(id => id !== student.id))
+                                      }}
+                                    />
+                                    <Label htmlFor={student.id} className="w-full cursor-pointer">{student.name}</Label>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
-                          </div>
-                        </AccordionContent>
-                      </AccordionItem>
-                    )
-                  })
-                ) : (
-                  <p className="text-sm text-muted-foreground p-4 text-center">{t("No students found. New students will appear here once they sign up with your teacher code.")}</p>
-                )}
-              </Accordion>
+                            </AccordionContent>
+                          </AccordionItem>
+                        )
+                      })
+                    ) : (
+                      <p className="text-sm text-muted-foreground p-4 text-center">{t("No students found. New students will appear here once they sign up with your teacher code.")}</p>
+                    )}
+                  </Accordion>
+                </>
+              )}
             </CardContent>
           </Card>
           <Button size="lg" className="w-full" onClick={handleAssignAssessment} disabled={isAssigning}>
             {isAssigning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            {t("Assign Assessment")} ({selectedStudents.length} {selectedStudents.length === 1 ? t('Student') : t('Students')})
+            {isGlobal 
+              ? t("Assign to Everyone") 
+              : `${t("Assign Assessment")} (${selectedStudents.length} ${selectedStudents.length === 1 ? t('Student') : t('Students')})`}
           </Button>
         </div>
       </div>
